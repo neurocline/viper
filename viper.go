@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -44,6 +45,8 @@ import (
 	"github.com/spf13/cast"
 	jww "github.com/spf13/jwalterweatherman"
 	"github.com/spf13/pflag"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 // ConfigMarshalError happens when failing to marshal the configuration.
@@ -1675,6 +1678,43 @@ func (v *Viper) AllSettings() map[string]interface{} {
 	return m
 }
 
+// AllSettingsLevels returns all settings as a map[string][string], where
+// the value for each key notes the location that key is resolved from.
+// At the moment, only 'flag', 'config' and 'default' are returned.
+func AllSettingsLevels() map[string]string { return v.AllSettingsLevels() }
+func (v *Viper) AllSettingsLevels() map[string]string {
+	m := map[string]string{}
+	// Iterate through all the keys; for each key, get the most overriden location
+	for _, key := range v.AllKeys() {
+		lcaseKey := strings.ToLower(key)
+		path := strings.Split(lcaseKey, v.keyDelim)
+		firstKey := strings.ToLower(path[0])
+
+		// Is it an override?
+		if val := v.searchMap(v.override, path); val != nil {
+			m[firstKey] = "override"
+			continue
+		}
+
+		// Is it a flag?
+		if flag, exists := v.pflags[lcaseKey]; exists && flag.HasChanged() {
+			m[firstKey] = "flag"
+			continue
+		}
+
+		// Is it from config?
+		if val := v.searchMapWithPathPrefixes(v.config, path); val != nil {
+			m[firstKey] = "config"
+			continue
+		}
+
+		// Otherwise, call it default
+		m[firstKey] = "default"
+	}
+
+	return m
+}
+
 // SetFs sets the filesystem to use to read configuration.
 func SetFs(fs afero.Fs) { v.SetFs(fs) }
 func (v *Viper) SetFs(fs afero.Fs) {
@@ -1768,4 +1808,159 @@ func (v *Viper) Debug() {
 	fmt.Printf("Key/Value Store:\n%#v\n", v.kvstore)
 	fmt.Printf("Config:\n%#v\n", v.config)
 	fmt.Printf("Defaults:\n%#v\n", v.defaults)
+}
+
+func Spew() { v.Spew() }
+func (v *Viper) Spew() string {
+	spew.Config.Indent = "  "
+	spew.Config.SortKeys = true
+	return spew.Sdump(v)
+}
+
+func Dump() { v.Dump() }
+func (v *Viper) Dump() {
+	fmt.Printf("-----------\n")
+	fmt.Printf("keyDelim: %s\n", v.keyDelim)
+	fmt.Printf("configPaths: %#v\n", v.configPaths)
+	fmt.Printf("fs: %+v\n", v.fs)
+	fmt.Printf("remoteProviders: %#v\n", v.remoteProviders)
+
+	fmt.Printf("configName: %#v\n", v.configName)
+	fmt.Printf("configFile: %#v\n", v.configFile)
+	fmt.Printf("configType: %#v\n", v.configType)
+	fmt.Printf("envPrefix: %#v\n", v.envPrefix)
+
+	fmt.Printf("automaticEnvApplied: %#v\n", v.automaticEnvApplied)
+	fmt.Printf("envKeyReplacer: %#v\n", v.envKeyReplacer)
+
+/*	fn_stringer(indent int, t interface{}) []string {
+		switch t.(type) {
+		case string:
+			return []string{string(t)}
+		case map[string]string:
+			m = t.(map[string]string)
+			if len(m) == 0 {
+				return []string("map[string]string{}")
+			}
+			b := []string{"map[string]string{"}
+			keys:= make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range m {
+				v = fn_stringer(m[k])
+				if len(v) < 2 {
+					b = append(b, v)
+				}
+				b = append(b, "  " + fn_stringer(m[k]))
+			}
+			b = append(b, "}")
+			return b
+		}
+	}*/
+
+	//v.Debug()
+/*	fnv := func(tag string, descrip string, m map[string]interface{}) {
+		if len(m) == 0 {
+			fmt.Printf("%s: %#v\n", tag, m)
+		} else {
+			fmt.Printf("%s: %s{\n", tag, descrip)
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Printf("  %s: %#v,\n", k, m[k])
+			}
+			fmt.Printf("}\n")
+		}
+	}*/
+	fn_keys_str := func(m map[string]string) (keys []string) {
+		keys = make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return
+	}
+	fn_keys_intf := func(m map[string]interface{}) (keys []string) {
+		keys = make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return
+	}
+	fn_str := func(tag string, m map[string]string) {
+		if len(m) == 0 {
+			fmt.Printf("%s: %#v\n", tag, m)
+		} else {
+			fmt.Printf("%s: map[string]string{\n", tag)
+			keys := fn_keys_str(m)
+			//keys := make([]string, 0, len(m))
+			//for k := range m {
+			//	keys = append(keys, k)
+			//}
+			//sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Printf("  %s: %#v,\n", k, m[k])
+			}
+			fmt.Printf("}\n")
+		}
+	}
+	fn_intf := func(tag string, m map[string]interface{}) {
+		if len(m) == 0 {
+			fmt.Printf("%s: %#v\n", tag, m)
+		} else {
+			fmt.Printf("%s: map[string]interface{}{\n", tag)
+			keys := fn_keys_intf(m)
+			//keys := make([]string, 0, len(m))
+			//for k := range m {
+			//	keys = append(keys, k)
+			//}
+			//sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Printf("  %s: %#v,\n", k, m[k])
+			}
+			fmt.Printf("}\n")
+		}
+	}
+	fn_flag := func(tag string, m map[string]FlagValue) {
+		if len(m) == 0 {
+			fmt.Printf("%s: %#v\n", tag, m)
+		} else {
+			fmt.Printf("%s: map[string]FlagValue{\n", tag)
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Printf("  %s: %#v,\n", k, m[k])
+			}
+			fmt.Printf("}\n")
+		}
+	}
+	fn_str("Aliases", v.aliases)
+	fn_intf("Override", v.override)
+	fn_flag("PFlags", v.pflags)
+	fn_str("Env", v.env)
+	fn_intf("Key/Value Store", v.kvstore)
+	fn_intf("Config", v.config)
+	fn_intf("Defaults", v.defaults)
+
+	//fmt.Printf("Aliases:\n%#v\n", v.aliases)
+	//fmt.Printf("Override:\n%#v\n", v.override)
+	//fmt.Printf("PFlags:\n%#v\n", v.pflags)
+	//fmt.Printf("Env:\n%#v\n", v.env)
+	//fmt.Printf("Key/Value Store:\n%#v\n", v.kvstore)
+	//fmt.Printf("Config:\n%#v\n", v.config)
+	//fmt.Printf("Defaults:\n%#v\n", v.defaults)
+
+	fmt.Printf("typeByDefValue: %#v\n", v.typeByDefValue)
+
+	fmt.Printf("properties: %#v\n", v.properties)
+	fmt.Printf("onConfigChange: %#v\n", v.onConfigChange)
 }
